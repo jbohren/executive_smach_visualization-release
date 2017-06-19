@@ -30,8 +30,8 @@
 #
 # Author: Jonathan Bohren 
 
-import roslib; roslib.load_manifest('smach_viewer')
 import rospy
+import rospkg
 
 from smach_msgs.msg import SmachContainerStatus,SmachContainerInitialStatusCmd,SmachContainerStructure
 
@@ -43,15 +43,39 @@ import pprint
 import copy
 import StringIO
 import colorsys
+import time
 
 import wxversion
-wxversion.select("2.8")
+if wxversion.checkInstalled("2.8"):
+    wxversion.select("2.8")
+else:
+    print("wxversion 2.8 is not installed, installed versions are {}".format(wxversion.getInstalled()))
 import wx
 import wx.richtext
 
 import textwrap
 
-import xdot
+## this import system (or ros-released) xdot
+# import xdot
+## need to import currnt package, but not to load this file
+# http://stackoverflow.com/questions/6031584/importing-from-builtin-library-when-module-with-same-name-exists
+def import_non_local(name, custom_name=None):
+    import imp, sys
+
+    custom_name = custom_name or name
+
+    path = filter(lambda x: x != os.path.dirname(os.path.abspath(__file__)), sys.path)
+    f, pathname, desc = imp.find_module(name, path)
+
+    module = imp.load_module(custom_name, f, pathname, desc)
+    if f:
+        f.close()
+
+    return module
+
+smach_viewer = import_non_local('smach_viewer')
+from smach_viewer import xdot
+##
 import smach
 import smach_ros
 
@@ -444,7 +468,8 @@ class SmachViewerFrame(wx.Frame):
         self._top_containers = {}
         self._update_cond = threading.Condition()
         self._needs_refresh = True
-        
+        self.dotstr = ''
+
         vbox = wx.BoxSizer(wx.VERTICAL)
 
 
@@ -510,13 +535,22 @@ class SmachViewerFrame(wx.Frame):
         toolbar.AddControl(wx.StaticText(toolbar,-1,"    "))
         toolbar.AddControl(toggle_all)
 
+        toggle_auto_focus = wx.ToggleButton(toolbar, -1, 'Auto Focus')
+        toggle_auto_focus.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_auto_focus)
+        self._auto_focus = False
+
+        toolbar.AddControl(wx.StaticText(toolbar, -1, "    "))
+        toolbar.AddControl(toggle_auto_focus)
+
         toolbar.AddControl(wx.StaticText(toolbar,-1,"    "))
         toolbar.AddLabelTool(wx.ID_HELP, 'Help',
                 wx.ArtProvider.GetBitmap(wx.ART_HELP,wx.ART_OTHER,(16,16)) )
+        toolbar.AddLabelTool(wx.ID_SAVE, 'Save',
+                wx.ArtProvider.GetBitmap(wx.ART_FILE_SAVE,wx.ART_OTHER,(16,16)) )
         toolbar.Realize()
 
-
         self.Bind(wx.EVT_TOOL, self.ShowControlsDialog, id=wx.ID_HELP)
+        self.Bind(wx.EVT_TOOL, self.SaveDotGraph, id=wx.ID_SAVE)
 
         # Create dot graph widget
         self.widget = xdot.wxxdot.WxDotWindow(graph_view, -1)
@@ -630,9 +664,21 @@ class SmachViewerFrame(wx.Frame):
         self._needs_zoom = True
         self.update_graph()
 
+    def _set_path(self, path):
+        self._path = path
+        self._needs_zoom = True
+        self.path_combo.SetValue(path)
+        self.update_graph()
+
     def set_depth(self, event):
         """Event: Change the maximum depth and update the graph."""
         self._max_depth = self.depth_spinner.GetValue()
+        self._needs_zoom = True
+        self.update_graph()
+
+    def _set_max_depth(self, max_depth):
+        self._max_depth = max_depth
+        self.depth_spinner.SetValue(max_depth)
         self._needs_zoom = True
         self.update_graph()
 
@@ -648,8 +694,23 @@ class SmachViewerFrame(wx.Frame):
         self._structure_changed = True
         self.update_graph()
 
+    def toggle_auto_focus(self, event):
+        """Event: Enable/Disable automatically focusing"""
+        self._auto_focus = not self._auto_focus
+        self._needs_zoom = self._auto_focus
+        self._structure_changed = True
+        if not self._auto_focus:
+            self._set_path('/')
+            self._max_depth(-1)
+        self.update_graph()
+
     def select_cb(self, item, event):
         """Event: Click to select a graph node to display user data and update the graph."""
+
+        # Only set string status
+        if not type(item.url) is str:
+            return
+
         self.statusbar.SetStatusText(item.url)
         # Left button-up
         if event.ButtonUp(wx.MOUSE_BTN_LEFT):
@@ -750,7 +811,7 @@ class SmachViewerFrame(wx.Frame):
 
             # We need to redraw thhe graph if this container's parent is already known
             if parent_path in self._containers:
-                needs_redraw= True
+                needs_redraw = True
 
         # Update the graph if necessary
         if needs_redraw:
@@ -765,6 +826,10 @@ class SmachViewerFrame(wx.Frame):
         # Check if we're in the process of shutting down
         if not self._keep_running:
             return
+
+        if self._auto_focus and len(msg.info) > 0:
+            self._set_path(msg.info)
+            self._set_max_depth(msg.info.count('/')-1)
 
         # Get the path to the updating conainer
         path = msg.path
@@ -843,7 +908,7 @@ class SmachViewerFrame(wx.Frame):
                         dotstr += '"__empty__" [label="Path not available.", shape="plaintext"]'
 
                     dotstr += '\n}\n'
-
+                    self.dotstr = dotstr
                     # Set the dotcode to the new dotcode, reset the flags
                     self.set_dotcode(dotstr,zoom=False)
                     self._structure_changed = False
@@ -952,6 +1017,16 @@ class SmachViewerFrame(wx.Frame):
                 'Keyboard Controls', wx.OK)
         dial.ShowModal()
 
+    def SaveDotGraph(self,event):
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        directory = rospkg.get_ros_home()+'/dotfiles/'
+        if not os.path.exists(directory):
+                os.makedirs(directory)
+        filename = directory+timestr+'.dot'
+        print('Writing to file: %s' % filename)
+        with open(filename, 'w') as f:
+            f.write(self.dotstr)
+
     def OnExit(self, event):
         pass
 
@@ -959,12 +1034,22 @@ class SmachViewerFrame(wx.Frame):
         self.widget.set_filter(filter)
 
 def main():
+    from argparse import ArgumentParser
+    p = ArgumentParser()
+    p.add_argument('-f', '--auto-focus',
+                 action='store_true',
+                 help="Enable 'AutoFocus to subgraph' as default",
+                 dest='enable_auto_focus')
+    args = p.parse_args()
     app = wx.App()
 
     frame = SmachViewerFrame()
     frame.set_filter('dot')
 
     frame.Show()
+
+    if args.enable_auto_focus:
+        frame.toggle_auto_focus(None)
 
     app.MainLoop()
 
