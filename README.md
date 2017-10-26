@@ -1,3 +1,28 @@
+## executive_smach_visualization (indigo) - 2.0.2-0
+
+The packages in the `executive_smach_visualization` repository were released into the `indigo` distro by running `/usr/bin/bloom-release executive_smach_visualization --track indigo --rosdistro indigo` on `Thu, 26 Oct 2017 10:57:14 -0000`
+
+These packages were released:
+- `executive_smach_visualization`
+- `smach_viewer`
+
+Version of package(s) in repository `executive_smach_visualization`:
+
+- upstream repository: https://github.com/ros-visualization/executive_smach_visualization.git
+- release repository: https://github.com/jbohren/executive_smach_visualization-release.git
+- rosdistro version: `2.0.1-0`
+- old version: `2.0.1-0`
+- new version: `2.0.2-0`
+
+Versions of tools used:
+
+- bloom version: `0.6.1`
+- catkin_pkg version: `0.3.6`
+- rosdep version: `0.11.8`
+- rosdistro version: `0.6.2`
+- vcstools version: `0.1.39`
+
+
 ## executive_smach_visualization (lunar) - 2.0.1-0
 
 The packages in the `executive_smach_visualization` repository were released into the `lunar` distro by running `/home/k-okada/catkin_ws/ws_rosdep/bloom/devel/bin/bloom-release executive_smach_visualization --track lunar --rosdistro lunar` on `Tue, 20 Jun 2017 00:10:32 -0000`
