@@ -1,3 +1,28 @@
+## executive_smach_visualization (melodic) - 2.0.2-0
+
+The packages in the `executive_smach_visualization` repository were released into the `melodic` distro by running `/usr/bin/bloom-release -y executive_smach_visualization --rosdistro melodic --track melodic` on `Sat, 08 Sep 2018 08:42:48 -0000`
+
+These packages were released:
+- `executive_smach_visualization`
+- `smach_viewer`
+
+Version of package(s) in repository `executive_smach_visualization`:
+
+- upstream repository: https://github.com/ros-visualization/executive_smach_visualization.git
+- release repository: unknown
+- rosdistro version: `null`
+- old version: `null`
+- new version: `2.0.2-0`
+
+Versions of tools used:
+
+- bloom version: `0.6.6`
+- catkin_pkg version: `0.4.8`
+- rosdep version: `0.12.2`
+- rosdistro version: `0.6.9`
+- vcstools version: `0.1.40`
+
+
 ## executive_smach_visualization (lunar) - 2.0.2-0
 
 The packages in the `executive_smach_visualization` repository were released into the `lunar` distro by running `/usr/bin/bloom-release -y executive_smach_visualization --track lunar --rosdistro lunar` on `Thu, 26 Oct 2017 11:09:26 -0000`
