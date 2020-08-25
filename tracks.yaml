@@ -153,7 +153,7 @@ tracks:
     - git-bloom-generate -y rosrpm --prefix release/:{ros_distro} :{ros_distro} -i
       :{release_inc}
     devel_branch: melodic-devel
-    last_version: 3.0.0
+    last_version: 3.0.1
     name: executive_smach_visualization
     patches: null
     release_inc: '1'
