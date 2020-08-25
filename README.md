@@ -1,3 +1,28 @@
+## executive_smach_visualization (noetic) - 3.0.0-1
+
+The packages in the `executive_smach_visualization` repository were released into the `noetic` distro by running `/usr/bin/bloom-release --skip-pip -y executive_smach_visualization --track noetic --rosdistro noetic` on `Tue, 25 Aug 2020 04:36:49 -0000`
+
+These packages were released:
+- `executive_smach_visualization`
+- `smach_viewer`
+
+Version of package(s) in repository `executive_smach_visualization`:
+
+- upstream repository: https://github.com/ros-visualization/executive_smach_visualization.git
+- release repository: unknown
+- rosdistro version: `null`
+- old version: `null`
+- new version: `3.0.0-1`
+
+Versions of tools used:
+
+- bloom version: `0.9.3`
+- catkin_pkg version: `0.4.16`
+- rosdep version: `0.19.0`
+- rosdistro version: `0.8.0`
+- vcstools version: `0.1.42`
+
+
 ## executive_smach_visualization (melodic) - 3.0.0-1
 
 The packages in the `executive_smach_visualization` repository were released into the `melodic` distro by running `/usr/bin/bloom-release executive_smach_visualization --track melodic --ros-distro melodic -e` on `Wed, 11 Dec 2019 05:52:51 -0000`
