@@ -2,6 +2,12 @@
 Changelog for package executive_smach_visualization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+4.0.0 (2022-07-23)
+------------------
+
+3.0.1 (2020-08-25)
+------------------
+
 3.0.0 (2019-12-11)
 ------------------
 * Merge remote-tracking branch 'origin/indigo-devel' into melodic-devel
