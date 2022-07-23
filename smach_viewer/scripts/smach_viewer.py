@@ -32,8 +32,10 @@
 
 import rospy
 import rospkg
+import roslib
 
 from smach_msgs.msg import SmachContainerStatus,SmachContainerInitialStatusCmd,SmachContainerStructure
+from sensor_msgs.msg import Image
 
 import sys
 import os
@@ -41,40 +43,67 @@ import threading
 import pickle
 import pprint
 import copy
-import StringIO
+try:
+    from StringIO import StringIO  # for Python 2
+except ImportError:
+    from io import StringIO  # for Python 3
 import colorsys
 import time
+import cv_bridge
+import numpy as np
+import base64
 
-import wxversion
-if wxversion.checkInstalled("2.8"):
-    wxversion.select("2.8")
-else:
-    print("wxversion 2.8 is not installed, installed versions are {}".format(wxversion.getInstalled()))
+try:
+    import wxversion
+    if wxversion.checkInstalled("2.8"):
+        wxversion.select("2.8")
+    else:
+        print("wxversion 2.8 is not installed, installed versions are {}".format(wxversion.getInstalled()))
+
+    ## this import system (or ros-released) xdot
+    # import xdot
+    ## need to import currnt package, but not to load this file
+    # http://stackoverflow.com/questions/6031584/importing-from-builtin-library-when-module-with-same-name-exists
+    def import_non_local(name, custom_name=None):
+        import imp, sys
+
+        custom_name = custom_name or name
+
+        path = filter(lambda x: x != os.path.dirname(os.path.abspath(__file__)), sys.path)
+        f, pathname, desc = imp.find_module(name, path)
+
+        module = imp.load_module(custom_name, f, pathname, desc)
+        if f:
+            f.close()
+
+        return module
+
+    smach_viewer = import_non_local('smach_viewer')
+    from smach_viewer import xdot
+    from smach_viewer.xdot import wxxdot
+    from smach_viewer.xdot.xdot import TextShape
+except:
+    # Guard against self import
+    this_dir = os.path.dirname(__file__)
+    # Use os.getcwd() to aovid weird symbolic link problems
+    cur_dir = os.getcwd()
+    os.chdir(this_dir)
+    this_dir_cwd = os.getcwd()
+    os.chdir(cur_dir)
+    # Remove this dir from path
+    sys.path = [a for a in sys.path if a not in [this_dir, this_dir_cwd]]
+    #
+    from smach_viewer.xdot import wxxdot
+    from xdot.ui.elements import *
+
+
 import wx
 import wx.richtext
 
+from itertools import groupby
 import textwrap
+import unicodedata
 
-## this import system (or ros-released) xdot
-# import xdot
-## need to import currnt package, but not to load this file
-# http://stackoverflow.com/questions/6031584/importing-from-builtin-library-when-module-with-same-name-exists
-def import_non_local(name, custom_name=None):
-    import imp, sys
-
-    custom_name = custom_name or name
-
-    path = filter(lambda x: x != os.path.dirname(os.path.abspath(__file__)), sys.path)
-    f, pathname, desc = imp.find_module(name, path)
-
-    module = imp.load_module(custom_name, f, pathname, desc)
-    if f:
-        f.close()
-
-    return module
-
-smach_viewer = import_non_local('smach_viewer')
-from smach_viewer import xdot
 ##
 import smach
 import smach_ros
@@ -82,12 +111,12 @@ import smach_ros
 ### Helper Functions
 def graph_attr_string(attrs):
     """Generate an xdot graph attribute string."""
-    attrs_strs = ['"'+str(k)+'"="'+str(v)+'"' for k,v in attrs.iteritems()]
+    attrs_strs = ['"'+str(k)+'"="'+str(v)+'"' for k,v in attrs.items()]
     return ';\n'.join(attrs_strs)+';\n'
 
 def attr_string(attrs):
     """Generate an xdot node attribute string."""
-    attrs_strs = ['"'+str(k)+'"="'+str(v)+'"' for k,v in attrs.iteritems()]
+    attrs_strs = ['"'+str(k)+'"="'+str(v)+'"' for k,v in attrs.items()]
     return ' ['+(', '.join(attrs_strs))+']'
 
 def get_parent_path(path):
@@ -108,6 +137,123 @@ def hex2t(color_str):
     """Convert a hexadecimal color strng into a color tuple."""
     color_tuple = [int(color_str[i:i+2],16)/255.0    for i in range(1,len(color_str),2)]
     return color_tuple
+
+
+# these codes are copied and modified from sphinx
+# https://github.com/sphinx-doc/sphinx/commit/00fa1b2505adbaec66496ec20fa5952da976496d
+def column_width(text):
+    east_asian_widths = {
+        'W': 2,   # Wide
+        'F': 2,   # Full-width (wide)
+        'Na': 1,  # Narrow
+        'H': 1,   # Half-width (narrow)
+        'N': 1,   # Neutral (not East Asian, treated as narrow)
+        'A': 1    # Ambiguous (s/b wide in East Asian context
+    }
+    if isinstance(text, str) and sys.version_info < (3, 0):
+        return len(text)
+    combining_correction = sum([-1 for c in text
+                                if unicodedata.combining(c)])
+    try:
+        width = sum([east_asian_widths[unicodedata.east_asian_width(c)]
+                     for c in text])
+    except AttributeError:  # east_asian_width() New in version 2.4.
+        width = len(text)
+    return width + combining_correction
+
+
+class TextWrapper(textwrap.TextWrapper):
+
+    def _wrap_chunks(self, chunks):
+        """_wrap_chunks(chunks : [string]) -> [string]
+
+        Original _wrap_chunks use len() to calculate width.
+        This method respect to wide/fullwidth characters for width adjustment.
+        """
+        lines = []
+        if self.width <= 0:
+            raise ValueError("invalid width %r (must be > 0)" % self.width)
+
+        chunks.reverse()
+
+        while chunks:
+            cur_line = []
+            cur_len = 0
+
+            if lines:
+                indent = self.subsequent_indent
+            else:
+                indent = self.initial_indent
+
+            width = self.width - column_width(indent)
+
+            if self.drop_whitespace and chunks[-1].strip() == '' and lines:
+                del chunks[-1]
+
+            while chunks:
+                c_l = column_width(chunks[-1])
+
+                if cur_len + c_l <= width:
+                    cur_line.append(chunks.pop())
+                    cur_len += c_l
+
+                else:
+                    break
+
+            if chunks and column_width(chunks[-1]) > width:
+                self._handle_long_word(chunks, cur_line, cur_len, width)
+
+            if (self.drop_whitespace and cur_line
+                    and cur_line[-1].strip() == ''):
+                del cur_line[-1]
+
+            if cur_line:
+                lines.append(indent + ''.join(cur_line))
+
+        return lines
+
+    def _break_word(self, word, space_left):
+        """_break_word(word : string, space_left : int) -> (string, string)
+
+        Break line by unicode width instead of len(word).
+        """
+        total = 0
+        for i, c in enumerate(word):
+            total += column_width(c)
+            if total > space_left:
+                return word[:i-1], word[i-1:]
+        return word, ''
+
+    def _split(self, text):
+        """_split(text : string) -> [string]
+
+        Override original method that only split by 'wordsep_re'.
+        This '_split' split wide-characters into chunk by one character.
+        """
+        split = lambda t: textwrap.TextWrapper._split(self, t)
+        chunks = []
+        for chunk in split(text):
+            for w, g in groupby(chunk, column_width):
+                if w == 1:
+                    chunks.extend(split(''.join(g)))
+                else:
+                    chunks.extend(list(g))
+        return chunks
+
+    def _handle_long_word(self, reversed_chunks, cur_line, cur_len, width):
+        """_handle_long_word(chunks : [string], cur_line : [string], cur_len : int, width : int)
+
+        Override original method for using self._break_word() instead of slice.
+        """
+        space_left = max(width - cur_len, 1)
+        if self.break_long_words:
+            l, r = self._break_word(reversed_chunks[-1], space_left)
+            cur_line.append(l)
+            reversed_chunks[-1] = r
+
+        elif not cur_line:
+            cur_line.append(reversed_chunks.pop())
+
 
 class ContainerNode():
     """
@@ -161,6 +307,17 @@ class ContainerNode():
 
         return needs_update
 
+    def _load_local_data(self, msg):
+        """Unpack the user data"""
+        try:
+            local_data = pickle.loads(msg.local_data)
+        except:
+            if isinstance(msg.local_data, str):
+                local_data = pickle.loads(base64.b64decode(msg.local_data))
+            else:
+                local_data = pickle.loads(base64.b64decode(bytes(str(msg.local_data).encode('utf-8'))))
+        return local_data
+
     def update_status(self, msg):
         """Update the known userdata and active state set and return True if the graph needs to be redrawn."""
 
@@ -182,14 +339,14 @@ class ContainerNode():
         # Unpack the user data
         while not rospy.is_shutdown():
             try:
-                self._local_data._data = pickle.loads(msg.local_data)
+                self._local_data._data = self._load_local_data(msg)
                 break
             except ImportError as ie:
                 # This will only happen once for each package
                 modulename = ie.args[0][16:]
                 packagename = modulename[0:modulename.find('.')]
                 roslib.load_manifest(packagename)
-                self._local_data._data = pickle.loads(msg.local_data)
+                self._local_data._data = self._load_local_data(msg)
 
         # Store the info string
         self._info = msg.info
@@ -289,10 +446,10 @@ class ContainerNode():
                     dotstr += '"%s" %s;\n' % (child_path, attr_string(child_attrs))
 
             # Iterate over edges
-            internal_edges = zip(
+            internal_edges = list(zip(
                     self._internal_outcomes,
                     self._outcomes_from,
-                    self._outcomes_to)
+                    self._outcomes_to))
 
             # Add edge from container label to initial state
             internal_edges += [('','__proxy__',initial_child) for initial_child in self._initial_states]
@@ -450,7 +607,7 @@ class ContainerNode():
                 else:
                     if child_path in items:
                         for shape in items[child_path].shapes:
-                            if not isinstance(shape,xdot.xdot.TextShape):
+                            if not isinstance(shape,TextShape):
                                 shape.pen.color = child_color
                                 shape.pen.fillcolor = child_fillcolor
                                 shape.pen.linewidth = child_linewidth
@@ -525,7 +682,7 @@ class SmachViewerFrame(wx.Frame):
                 max=1337,
                 initial=40)
         self.width_spinner.Bind(wx.EVT_SPINCTRL,self.set_label_width)
-        self._label_wrapper = textwrap.TextWrapper(40,break_long_words=True)
+        self._label_wrapper = TextWrapper(40,break_long_words=True)
         toolbar.AddControl(wx.StaticText(toolbar,-1,"    Label Width: "))
         toolbar.AddControl(self.width_spinner)
 
@@ -555,7 +712,7 @@ class SmachViewerFrame(wx.Frame):
         self.Bind(wx.EVT_TOOL, self.SaveDotGraph, id=wx.ID_SAVE)
 
         # Create dot graph widget
-        self.widget = xdot.wxxdot.WxDotWindow(graph_view, -1)
+        self.widget = wxxdot.WxDotWindow(graph_view, -1)
 
         gv_vbox.Add(toolbar, 0, wx.EXPAND)
         gv_vbox.Add(self.widget, 1, wx.EXPAND)
@@ -615,6 +772,8 @@ class SmachViewerFrame(wx.Frame):
         self._structure_subs = {}
         self._status_subs = {}
 
+        self._pub = rospy.Publisher('~image', Image, queue_size=1)
+
         self.Bind(wx.EVT_IDLE,self.OnIdle)
         self.Bind(wx.EVT_CLOSE,self.OnQuit)
 
@@ -634,6 +793,11 @@ class SmachViewerFrame(wx.Frame):
         self._update_tree_thread = threading.Thread(target=self._update_tree)
         self._update_tree_thread.start()
 
+        self.timer = wx.Timer(self, 0)
+        self.Bind(wx.EVT_TIMER, self.OnTimer)
+        self.timer.Start(200)
+
+
     def OnQuit(self,event):
         """Quit Event: kill threads and wait for join."""
         with self._update_cond:
@@ -643,7 +807,6 @@ class SmachViewerFrame(wx.Frame):
         self._server_list_thread.join()
         self._update_graph_thread.join()
         self._update_tree_thread.join()
-        
         event.Skip()
 
     def update_graph(self):
@@ -710,7 +873,10 @@ class SmachViewerFrame(wx.Frame):
         """Event: Click to select a graph node to display user data and update the graph."""
 
         # Only set string status
-        if not type(item.url) is str:
+        try:
+            if not type(item.url) is str:
+                return
+        except AttributeError:
             return
 
         self.statusbar.SetStatusText(item.url)
@@ -754,7 +920,7 @@ class SmachViewerFrame(wx.Frame):
 
                 # Generate the userdata string
                 ud_str = ''
-                for (k,v) in container._local_data._data.iteritems():
+                for (k,v) in container._local_data._data.items():
                     ud_str += str(k)+": "
                     vstr = str(v)
                     # Add a line break if this is a multiline value
@@ -786,7 +952,7 @@ class SmachViewerFrame(wx.Frame):
         parent_path = '/'.join(pathsplit[0:-1])
 
         rospy.logdebug("RECEIVED: "+path)
-        rospy.logdebug("CONTAINERS: "+str(self._containers.keys()))
+        rospy.logdebug("CONTAINERS: "+str(list(self._containers.keys())))
 
         # Initialize redraw flag
         needs_redraw = False
@@ -899,7 +1065,7 @@ class SmachViewerFrame(wx.Frame):
 
                     # Generate the rest of the graph
                     # TODO: Only re-generate dotcode for containers that have changed
-                    for path,tc in containers_to_update.iteritems():
+                    for path,tc in containers_to_update.items():
                         dotstr += tc.get_dotcode(
                                 self._selected_paths,[],
                                 0,self._max_depth,
@@ -912,17 +1078,27 @@ class SmachViewerFrame(wx.Frame):
                     dotstr += '\n}\n'
                     self.dotstr = dotstr
                     # Set the dotcode to the new dotcode, reset the flags
-                    self.set_dotcode(dotstr,zoom=False)
+                    try:
+                        self.set_dotcode(dotstr, zoom=False)
+                    except UnicodeDecodeError as e:
+                        # multibyte language only accepts even number
+                        label_width = self._label_wrapper.width
+                        rospy.logerr('label width {} causes error'.format(label_width))
+                        rospy.logerr('maybe multibyte word is in your label.')
+                        rospy.logerr(e)
+                        rospy.logerr('changing width label width to {}'.format(label_width + 1))
+                        self._label_wrapper.width = label_width + 1
                     self._structure_changed = False
 
-                # Update the styles for the graph if there are any updates
-                for path,tc in containers_to_update.iteritems():
-                    tc.set_styles(
-                            self._selected_paths,
-                            0,self._max_depth,
-                            self.widget.items_by_url,
-                            self.widget.subgraph_shapes,
-                            self._containers)
+                if hasattr(self.widget, 'subgraph_shapes'):
+                    # Update the styles for the graph if there are any updates
+                    for path,tc in containers_to_update.items():
+                        tc.set_styles(
+                                self._selected_paths,
+                                0,self._max_depth,
+                                self.widget.items_by_url,
+                                self.widget.subgraph_shapes,
+                                self._containers)
 
                 # Redraw
                 self.widget.Refresh()
@@ -947,7 +1123,7 @@ class SmachViewerFrame(wx.Frame):
                 self._update_cond.wait()
                 self.tree.DeleteAllItems()
                 self._tree_nodes = {}
-                for path,tc in self._top_containers.iteritems():
+                for path,tc in self._top_containers.items():
                     self.add_to_tree(path, None)
 
     def add_to_tree(self, path, parent):
@@ -960,7 +1136,7 @@ class SmachViewerFrame(wx.Frame):
         # Add children to tree
         for label in self._containers[path]._children:
             child_path = '/'.join([path,label])
-            if child_path in self._containers.keys():
+            if child_path in list(self._containers.keys()):
                 self.add_to_tree(child_path, container)
             else:
                 self.tree.AppendItem(container,label)
@@ -1012,6 +1188,21 @@ class SmachViewerFrame(wx.Frame):
             #if current_value == '' and len(self._servers) > 0:
             #    self.server_combo.SetStringSelection(self._servers[0])
             #    self.set_server(self._servers[0])
+
+    def OnTimer(self, event):
+        # image
+        context = wx.ClientDC(self)
+        memory = wx.MemoryDC()
+        x, y = self.ClientSize
+        bitmap = wx.EmptyBitmap(x, y, -1)
+        memory.SelectObject(bitmap)
+        memory.Blit(0, 0, x, y, context, 0, 0)
+        memory.SelectObject(wx.NullBitmap)
+        buf = wx.ImageFromBitmap(bitmap).GetDataBuffer()
+        img = np.frombuffer(buf, dtype=np.uint8)
+        bridge = cv_bridge.CvBridge()
+        img_msg = bridge.cv2_to_imgmsg(img.reshape((y, x, 3)), encoding='rgb8')
+        self._pub.publish(img_msg)
 
     def ShowControlsDialog(self,event):
         dial = wx.MessageDialog(None,
